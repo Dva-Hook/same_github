@@ -180,7 +180,7 @@ jobs:
 
       - name: 上传任务结果
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: GitHub-V6-注册结果-${{ matrix.index }}
           path: artifacts/job-${{ matrix.index }}
@@ -212,7 +212,7 @@ jobs:
           python-version: "3.12"
 
       - name: 下载全部任务结果
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v7
         with:
           pattern: GitHub-V6-注册结果-*
           path: artifacts
@@ -258,3 +258,12 @@ jobs:
 
           echo "连续三次推送失败，邮箱池未被远端覆盖。"
           exit 1
+
+      - name: 上传全部账号汇总
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ALL-全部账号-v6
+          path: 注册成功账号.txt
+          if-no-files-found: error
+          retention-days: 7

@@ -44,15 +44,17 @@ def test_matrix_limits_unique_allocation_and_three_attempts() -> None:
     assert "for attempt in 1 2 3" not in text
 
 
-def test_workflow_is_direct_only_and_uses_current_official_actions() -> None:
+def test_workflow_is_direct_only_and_uses_node24_actions() -> None:
     text, _data = _workflow()
 
     assert "proxy" not in text.casefold()
     assert "actions/checkout@v6" in text
     assert "actions/setup-python@v6" in text
     assert "actions/cache@v5" in text
-    assert "actions/upload-artifact@v4" in text
-    assert "actions/download-artifact@v5" in text
+    assert "actions/upload-artifact@v6" in text
+    assert "actions/download-artifact@v7" in text
+    assert "actions/upload-artifact@v4" not in text
+    assert "actions/download-artifact@v5" not in text
     assert "xvfb-run" in text
 
 
@@ -92,9 +94,25 @@ def test_artifacts_are_always_uploaded_before_failure_is_reported() -> None:
     download_step = next(
         step
         for step in data["jobs"]["collect"]["steps"]
-        if step.get("uses") == "actions/download-artifact@v5"
+        if step.get("uses") == "actions/download-artifact@v7"
     )
     assert download_step["with"].get("merge-multiple", "false") == "false"
+
+
+def test_collect_uploads_all_accounts_artifact() -> None:
+    _text, data = _workflow()
+    collect_steps = data["jobs"]["collect"]["steps"]
+    aggregate_step = next(
+        step
+        for step in collect_steps
+        if step.get("name") == "上传全部账号汇总"
+    )
+
+    assert aggregate_step["if"] == "always()"
+    assert aggregate_step["uses"] == "actions/upload-artifact@v6"
+    assert aggregate_step["with"]["name"] == "ALL-全部账号-v6"
+    assert aggregate_step["with"]["path"] == "注册成功账号.txt"
+    assert aggregate_step["with"]["if-no-files-found"] == "error"
 
 
 def test_registration_step_has_hard_timeout_and_unbuffered_logs() -> None:
