@@ -85,3 +85,27 @@ def test_dashboard_state_requires_confirmed_logged_in_signal() -> None:
     assert not login.is_dashboard_state(
         {"dashboard": False, "dashboardText": "", "userLogin": ""}
     )
+
+
+def test_existing_login_page_is_reused_without_duplicate_navigation() -> None:
+    page = Mock()
+    page.run_js.return_value = {
+        "href": "https://github.com/login?return_to=%2Fdashboard",
+        "loginForm": True,
+    }
+
+    login.prepare_login_page(page)
+
+    page.get.assert_not_called()
+
+
+def test_missing_login_form_triggers_nonblocking_navigation() -> None:
+    page = Mock()
+    page.run_js.return_value = {
+        "href": "https://github.com/account_verifications",
+        "loginForm": False,
+    }
+
+    login.prepare_login_page(page)
+
+    page.get.assert_called_once_with(login.GITHUB_LOGIN_URL, wait="none", timeout=15)

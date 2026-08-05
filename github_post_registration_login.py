@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
+from urllib.parse import urlsplit
 
 from github_device_code_mail import PollResult, poll_github_device_code
 from github_email_pool import EmailCredential
@@ -104,6 +105,27 @@ def read_login_state(page: Any) -> dict[str, Any]:
     return dict(state) if isinstance(state, dict) else {}
 
 
+def prepare_login_page(page: Any) -> None:
+    state = read_login_state(page)
+    current_url = str(state.get("href") or "").strip()
+    parsed = urlsplit(current_url)
+    already_on_login_page = (
+        parsed.netloc.casefold() == "github.com"
+        and parsed.path.rstrip("/") == "/login"
+        and bool(state.get("loginForm"))
+    )
+    if already_on_login_page:
+        LOG.info("当前页面已经是 GitHub 登录页，直接复用现有登录表单")
+        return
+
+    LOG.info("在当前浏览器打开 GitHub 登录页")
+    page.get(
+        GITHUB_LOGIN_URL,
+        wait="none",
+        timeout=NAVIGATION_COMMAND_TIMEOUT_SECONDS,
+    )
+
+
 def is_dashboard_state(state: dict[str, Any]) -> bool:
     dashboard_text = re.sub(
         r"\s+", " ", str(state.get("dashboardText") or "")
@@ -183,12 +205,7 @@ def perform_post_registration_login(
     code_enterer: Callable[..., None] = enter_device_code,
     dashboard_waiter: Callable[..., bool] = wait_for_dashboard,
 ) -> PostRegistrationLoginResult:
-    LOG.info("在当前浏览器打开 GitHub 登录页")
-    page.get(
-        GITHUB_LOGIN_URL,
-        wait="none",
-        timeout=NAVIGATION_COMMAND_TIMEOUT_SECONDS,
-    )
+    prepare_login_page(page)
     submitted_at = form_filler(page, account, timeout=form_timeout)
     outcome = outcome_waiter(page, timeout=form_timeout)
     if outcome == "dashboard":
@@ -232,6 +249,7 @@ __all__ = [
     "fill_login_form",
     "is_dashboard_state",
     "perform_post_registration_login",
+    "prepare_login_page",
     "read_login_state",
     "wait_for_dashboard",
     "wait_for_login_outcome",

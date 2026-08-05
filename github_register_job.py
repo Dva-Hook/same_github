@@ -153,11 +153,12 @@ def run_job(
                 }
             )
             LOG.warning(
-                "第 %d/%d 次注册失败: %s（%s）",
+                "第 %d/%d 次注册失败: %s（%s：%s）",
                 attempt,
                 attempts_limit,
                 account.email,
                 type(exc).__name__,
+                redacted,
             )
         finally:
             shutil.rmtree(profile_dir, ignore_errors=True)

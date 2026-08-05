@@ -62,7 +62,7 @@ def test_success_result_has_complete_verification_schema(tmp_path: Path, account
     assert account_text == job.format_account_record(account, "Carly007John")
 
 
-def test_failed_job_never_contains_credentials(tmp_path: Path, account) -> None:
+def test_failed_job_never_contains_credentials(tmp_path: Path, account, caplog) -> None:
     def fail(**_kwargs: object) -> str:
         raise RuntimeError(
             f"失败 {account.mailbox_password} {account.client_id} {account.refresh_token}"
@@ -82,6 +82,10 @@ def test_failed_job_never_contains_credentials(tmp_path: Path, account) -> None:
     assert account.client_id not in text
     assert account.refresh_token not in text
     assert not (tmp_path / "账号.txt").exists()
+    assert "<已隐藏>" in caplog.text
+    assert account.mailbox_password not in caplog.text
+    assert account.client_id not in caplog.text
+    assert account.refresh_token not in caplog.text
 
 
 def test_whole_registration_retry_is_rejected(account, tmp_path: Path) -> None:
