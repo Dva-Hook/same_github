@@ -97,6 +97,18 @@ def test_artifacts_are_always_uploaded_before_failure_is_reported() -> None:
     assert download_step["with"].get("merge-multiple", "false") == "false"
 
 
+def test_registration_step_has_hard_timeout_and_unbuffered_logs() -> None:
+    text, data = _workflow()
+    execute_step = next(
+        step
+        for step in data["jobs"]["register"]["steps"]
+        if step.get("id") == "registration"
+    )
+
+    assert execute_step["timeout-minutes"] == "20"
+    assert "python -u github_register_job.py" in text
+
+
 def test_all_declared_step_names_are_chinese() -> None:
     _text, data = _workflow()
     for job in data["jobs"].values():

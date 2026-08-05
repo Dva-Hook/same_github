@@ -160,12 +160,13 @@ jobs:
 
       - name: 执行注册任务
         id: registration
+        timeout-minutes: 20
         run: |
           set +e
           output_dir="artifacts/job-${{ matrix.index }}"
           mkdir -p "$output_dir"
           xvfb-run -a --server-args="-screen 0 1920x1080x24" \
-            python github_register_job.py \
+            python -u github_register_job.py \
               --邮箱文件 email.txt \
               --任务索引 "${{ matrix.index }}" \
               --输出目录 "$output_dir" \

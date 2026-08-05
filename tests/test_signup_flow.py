@@ -98,6 +98,17 @@ def test_fill_form_checks_options_waits_then_clicks(account) -> None:
     assert events == [("等待", 5.0), ("点击", "css:button.form-control")]
 
 
+def test_wait_element_only_queries_top_level_page() -> None:
+    expected = object()
+    page = Mock()
+    page.ele.return_value = expected
+
+    result = flow.wait_element(page, "#email", "GitHub email", timeout=1)
+
+    assert result is expected
+    page.get_all_frames.assert_not_called()
+
+
 def test_enters_all_eight_digits(account) -> None:
     elements = {selector: Element() for selector in flow.LAUNCH_CODE_SELECTORS}
     waiter = lambda _page, selector, _description, _timeout: elements[selector]
@@ -167,7 +178,7 @@ def test_perform_registration_uses_mail_and_success_contract(account) -> None:
         success_waiter=success,
     )
 
-    page.get.assert_called_once_with(flow.GITHUB_SIGNUP_URL, wait="interactive", timeout=60)
+    page.get.assert_called_once_with(flow.GITHUB_SIGNUP_URL, wait="none", timeout=15)
     fill.assert_called_once_with(page, account, "Carly007John", timeout=60)
     wait_stage.assert_called_once_with(page, timeout=60)
     poller.assert_called_once_with(

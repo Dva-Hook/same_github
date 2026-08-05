@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import re
 import secrets
@@ -30,6 +29,7 @@ COPILOT_OPT_IN_SELECTOR = 'css:[id="user_signup[copilot_opt_in]"]'
 CREATE_ACCOUNT_SELECTOR = "css:button.form-control"
 LAUNCH_CODE_SELECTORS = tuple(f"#launch-code-{index}" for index in range(8))
 SUCCESS_MESSAGE = "Your account was created successfully! Please sign in to continue."
+NAVIGATION_COMMAND_TIMEOUT_SECONDS = 15
 SUCCESS_STATE_JS = r"""return (() => {
   const selectors = [
     '.js-flash-alert > div:nth-child(1)',
@@ -92,13 +92,6 @@ def launch_direct_browser(
     )
 
 
-def _contexts(page: Any) -> list[Any]:
-    contexts = [page]
-    with contextlib.suppress(Exception):
-        contexts.extend(page.get_all_frames() or [])
-    return contexts
-
-
 def wait_element(
     page: Any,
     selector: str,
@@ -108,13 +101,12 @@ def wait_element(
     deadline = time.monotonic() + max(0.1, float(timeout))
     last_error: Exception | None = None
     while time.monotonic() < deadline:
-        for context in _contexts(page):
-            try:
-                element = context.ele(selector, timeout=0.25)
-                if element:
-                    return element
-            except Exception as exc:
-                last_error = exc
+        try:
+            element = page.ele(selector, timeout=0.25)
+            if element:
+                return element
+        except Exception as exc:
+            last_error = exc
         time.sleep(0.25)
     detail = type(last_error).__name__ if last_error else "未找到"
     raise TimeoutError(
@@ -158,6 +150,7 @@ def fill_signup_form(
     sleep: Callable[[float], None] = time.sleep,
     utcnow: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
 ) -> datetime:
+    LOG.info("等待 GitHub 注册表单")
     for selector, description, value in (
         (EMAIL_SELECTOR, "GitHub 邮箱输入框", account.email),
         (PASSWORD_SELECTOR, "GitHub 密码输入框", account.mailbox_password),
@@ -171,9 +164,11 @@ def fill_signup_form(
     ):
         _ensure_checkbox_checked(waiter(page, selector, description, timeout))
 
+    LOG.info("注册表单填写完成，等待 5 秒后点击创建账号")
     sleep(5.0)
     submitted_at = utcnow().astimezone(timezone.utc)
     clicker(page, CREATE_ACCOUNT_SELECTOR, "创建账号按钮", timeout)
+    LOG.info("已点击创建账号，等待邮箱验证码页面")
     return submitted_at
 
 
@@ -243,11 +238,18 @@ def perform_registration(
     code_enterer: Callable[..., None] = enter_launch_code,
     success_waiter: Callable[..., bool] = wait_for_registration_success,
 ) -> PollResult:
-    page.get(GITHUB_SIGNUP_URL, wait="interactive", timeout=60)
+    LOG.info("发送 GitHub 注册页非阻塞导航命令")
+    page.get(
+        GITHUB_SIGNUP_URL,
+        wait="none",
+        timeout=NAVIGATION_COMMAND_TIMEOUT_SECONDS,
+    )
+    LOG.info("导航命令已返回，开始等待 GitHub 注册表单")
     submitted_at = form_filler(
         page, account, username, timeout=form_timeout
     )
     stage_waiter(page, timeout=form_timeout)
+    LOG.info("邮箱验证码页面已出现，开始读取 GitHub 验证邮件")
     mail_result = mail_poller(
         client_id=account.client_id,
         refresh_token=account.refresh_token,
