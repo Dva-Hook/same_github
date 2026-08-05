@@ -21,6 +21,7 @@ def _write_result(
     username: str = "Carly007John",
     code_submitted: bool = True,
     success_banner: bool = True,
+    login_confirmed: bool = True,
     suffix: str = "1",
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -40,6 +41,7 @@ def _write_result(
         payload["verification"] = {
             "code_submitted": code_submitted,
             "success_banner": success_banner,
+            "login_confirmed": login_confirmed,
         }
     else:
         payload["errors"] = [{"attempt": 1, "type": "RuntimeError", "message": "失败"}]
@@ -164,6 +166,20 @@ def test_api_password_mismatch_is_ignored(tmp_path: Path) -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["account"]["password"] = "different"
     path.write_text(json.dumps(payload), encoding="utf-8")
+
+    summary = result_module.collect_results(tmp_path)
+
+    assert not summary.accepted
+    assert summary.ignored == 1
+
+
+def test_success_without_confirmed_login_is_ignored(tmp_path: Path) -> None:
+    _write_result(
+        tmp_path / "job" / "result.json",
+        success=True,
+        email="A12345678@example.com",
+        login_confirmed=False,
+    )
 
     summary = result_module.collect_results(tmp_path)
 

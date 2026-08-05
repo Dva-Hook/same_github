@@ -55,6 +55,7 @@ def test_success_result_has_complete_verification_schema(tmp_path: Path, account
     assert persisted["verification"] == {
         "code_submitted": True,
         "success_banner": True,
+        "login_confirmed": True,
     }
     assert persisted["account"]["username"] == "Carly007John"
     assert persisted["account"]["api_line"] == account.raw_line

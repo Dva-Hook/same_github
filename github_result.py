@@ -72,6 +72,8 @@ def _accepted_account(payload: Mapping[str, Any]) -> AcceptedAccount | None:
         return None
     if verification.get("success_banner") is not True:
         return None
+    if verification.get("login_confirmed") is not True:
+        return None
 
     account = payload.get("account")
     if not isinstance(account, Mapping):

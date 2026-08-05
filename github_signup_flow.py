@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from github_email_pool import EmailCredential
 from github_launch_code_mail import PollResult, poll_github_launch_code
+from github_post_registration_login import perform_post_registration_login
 
 
 LOG = logging.getLogger("github_register_v6.flow")
@@ -306,6 +307,7 @@ def perform_registration(
     resender: Callable[..., None] = resend_launch_code_email,
     code_enterer: Callable[..., None] = enter_launch_code,
     success_waiter: Callable[..., bool] = wait_for_registration_success,
+    login_performer: Callable[..., Any] = perform_post_registration_login,
 ) -> PollResult:
     LOG.info("发送 GitHub 注册页非阻塞导航命令")
     page.get(
@@ -342,6 +344,20 @@ def perform_registration(
     code_enterer(page, mail_result.code, timeout=form_timeout)
     if not success_waiter(page, timeout=success_timeout):
         raise TimeoutError("等待 GitHub 注册成功提示超时")
+    LOG.info("注册成功提示已确认，开始在当前浏览器执行首次登录")
+    login_result = login_performer(
+        page,
+        account,
+        form_timeout=form_timeout,
+        mail_timeout=mail_timeout,
+        success_timeout=success_timeout,
+    )
+    if not getattr(login_result, "success", False):
+        raise RuntimeError("GitHub 首次登录结果未确认成功")
+    LOG.info(
+        "GitHub 首次登录已确认：设备验证码=%s",
+        "是" if getattr(login_result, "otp_used", False) else "否",
+    )
     return mail_result
 
 

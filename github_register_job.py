@@ -177,6 +177,7 @@ def run_job(
             "verification": {
                 "code_submitted": True,
                 "success_banner": True,
+                "login_confirmed": True,
             },
         }
         _atomic_write_text(

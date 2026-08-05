@@ -10,6 +10,7 @@ import pytest
 import github_signup_flow as flow
 from github_email_pool import parse_credential_line
 from github_launch_code_mail import PollResult
+from github_post_registration_login import PostRegistrationLoginResult
 
 
 @pytest.fixture
@@ -197,6 +198,7 @@ def test_perform_registration_uses_mail_and_success_contract(account) -> None:
     enter = Mock()
     success = Mock(return_value=True)
     resend = Mock()
+    login = Mock(return_value=PostRegistrationLoginResult(True, False))
 
     def poll(**kwargs):
         kwargs["resend_callback"]()
@@ -221,6 +223,7 @@ def test_perform_registration_uses_mail_and_success_contract(account) -> None:
         resender=resend,
         code_enterer=enter,
         success_waiter=success,
+        login_performer=login,
     )
 
     page.get.assert_called_once_with(flow.GITHUB_SIGNUP_URL, wait="none", timeout=15)
@@ -240,6 +243,13 @@ def test_perform_registration_uses_mail_and_success_contract(account) -> None:
     )
     enter.assert_called_once_with(page, "52778203", timeout=60)
     success.assert_called_once_with(page, timeout=30)
+    login.assert_called_once_with(
+        page,
+        account,
+        form_timeout=60,
+        mail_timeout=180,
+        success_timeout=30,
+    )
     assert result.code == "52778203"
 
 
@@ -259,4 +269,7 @@ def test_perform_registration_rejects_missing_success_banner(account) -> None:
             resender=lambda *_args, **_kwargs: None,
             code_enterer=lambda *_args, **_kwargs: None,
             success_waiter=lambda *_args, **_kwargs: False,
+            login_performer=lambda *_args, **_kwargs: PostRegistrationLoginResult(
+                True, False
+            ),
         )
