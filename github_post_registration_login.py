@@ -51,6 +51,7 @@ class PostRegistrationLoginResult:
     otp_used: bool
     scanned: int = 0
     sender_matches: int = 0
+    username: str = ""
 
 
 def wait_element(page: Any, selector: str, description: str, timeout: float) -> Any:
@@ -139,6 +140,10 @@ def is_dashboard_state(state: dict[str, Any]) -> bool:
     return exact_dashboard or authenticated_meta
 
 
+def authenticated_username(page: Any) -> str:
+    return str(read_login_state(page).get("userLogin") or "").strip()
+
+
 def wait_for_login_outcome(
     page: Any,
     *,
@@ -210,7 +215,11 @@ def perform_post_registration_login(
     outcome = outcome_waiter(page, timeout=form_timeout)
     if outcome == "dashboard":
         LOG.info("GitHub 首次登录成功，无需设备验证码")
-        return PostRegistrationLoginResult(success=True, otp_used=False)
+        return PostRegistrationLoginResult(
+            success=True,
+            otp_used=False,
+            username=authenticated_username(page),
+        )
 
     LOG.info("GitHub 登录要求设备验证码，开始读取验证邮件")
     mail_result = mail_poller(
@@ -233,6 +242,7 @@ def perform_post_registration_login(
         otp_used=True,
         scanned=mail_result.scanned,
         sender_matches=mail_result.sender_matches,
+        username=authenticated_username(page),
     )
 
 
@@ -245,6 +255,7 @@ __all__ = [
     "PASSWORD_SELECTOR",
     "PostRegistrationLoginResult",
     "SIGN_IN_SELECTOR",
+    "authenticated_username",
     "enter_device_code",
     "fill_login_form",
     "is_dashboard_state",

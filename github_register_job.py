@@ -16,6 +16,7 @@ from typing import Any, Callable
 from github_email_pool import EmailCredential, select_email_credential
 from github_cli import ChineseArgumentParser
 from github_signup_flow import (
+    RecoveredExistingAccount,
     close_browser,
     generate_username,
     launch_direct_browser,
@@ -77,7 +78,7 @@ def run_single_attempt(
     browser_launcher: Callable[..., Any] = launch_direct_browser,
     performer: Callable[..., Any] = perform_registration,
     browser_closer: Callable[[Any], None] = close_browser,
-) -> str:
+) -> str | RecoveredExistingAccount:
     page: Any = None
     try:
         page = browser_launcher(
@@ -85,7 +86,7 @@ def run_single_attempt(
             snapshot_dir=snapshot_dir,
             headless=headless,
         )
-        performer(
+        outcome = performer(
             page,
             account,
             username,
@@ -93,6 +94,8 @@ def run_single_attempt(
             mail_timeout=mail_timeout,
             success_timeout=success_timeout,
         )
+        if isinstance(outcome, RecoveredExistingAccount):
+            return outcome
         return username
     finally:
         if page is not None:
@@ -118,6 +121,7 @@ def run_job(
     output_dir.mkdir(parents=True, exist_ok=True)
     errors: list[dict[str, str | int]] = []
     succeeded_username: str | None = None
+    recovered_existing = False
     completed_attempts = 0
 
     for attempt in range(1, attempts_limit + 1):
@@ -129,7 +133,7 @@ def run_job(
         username = generate_username(account)
         LOG.info("开始第 %d/%d 次注册尝试: %s", attempt, attempts_limit, account.email)
         try:
-            succeeded_username = attempt_runner(
+            attempt_result = attempt_runner(
                 account=account,
                 username=username,
                 profile_dir=profile_dir,
@@ -139,6 +143,11 @@ def run_job(
                 mail_timeout=mail_timeout,
                 success_timeout=success_timeout,
             )
+            if isinstance(attempt_result, RecoveredExistingAccount):
+                succeeded_username = attempt_result.username
+                recovered_existing = True
+            else:
+                succeeded_username = str(attempt_result)
             LOG.info("GitHub 注册成功: %s", account.email)
             break
         except KeyboardInterrupt:
@@ -176,9 +185,10 @@ def run_job(
                 "api_line": account.raw_line,
             },
             "verification": {
-                "code_submitted": True,
-                "success_banner": True,
+                "code_submitted": not recovered_existing,
+                "success_banner": not recovered_existing,
                 "login_confirmed": True,
+                "recovered_existing": recovered_existing,
             },
         }
         _atomic_write_text(

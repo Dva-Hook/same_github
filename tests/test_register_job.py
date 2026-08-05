@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import github_register_job as job
+import github_signup_flow as flow
 from github_email_pool import parse_credential_line
 
 
@@ -56,10 +57,29 @@ def test_success_result_has_complete_verification_schema(tmp_path: Path, account
         "code_submitted": True,
         "success_banner": True,
         "login_confirmed": True,
+        "recovered_existing": False,
     }
     assert persisted["account"]["username"] == "Carly007John"
     assert persisted["account"]["api_line"] == account.raw_line
     assert account_text == job.format_account_record(account, "Carly007John")
+
+
+def test_recovered_existing_account_has_explicit_verification(tmp_path: Path, account) -> None:
+    result = job.run_job(
+        account,
+        output_dir=tmp_path,
+        max_attempts=1,
+        attempt_runner=lambda **_kwargs: flow.RecoveredExistingAccount("ExistingUser"),
+    )
+
+    assert result["success"] is True
+    assert result["account"]["username"] == "ExistingUser"
+    assert result["verification"] == {
+        "code_submitted": False,
+        "success_banner": False,
+        "login_confirmed": True,
+        "recovered_existing": True,
+    }
 
 
 def test_failed_job_never_contains_credentials(tmp_path: Path, account, caplog) -> None:

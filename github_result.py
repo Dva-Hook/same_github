@@ -68,11 +68,14 @@ def _accepted_account(payload: Mapping[str, Any]) -> AcceptedAccount | None:
     verification = payload.get("verification")
     if not isinstance(verification, Mapping):
         return None
-    if verification.get("code_submitted") is not True:
-        return None
-    if verification.get("success_banner") is not True:
-        return None
     if verification.get("login_confirmed") is not True:
+        return None
+    normal_registration = (
+        verification.get("code_submitted") is True
+        and verification.get("success_banner") is True
+    )
+    existing_account_recovery = verification.get("recovered_existing") is True
+    if not normal_registration and not existing_account_recovery:
         return None
 
     account = payload.get("account")

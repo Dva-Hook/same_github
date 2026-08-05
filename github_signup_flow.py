@@ -8,6 +8,7 @@ import logging
 import re
 import secrets
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -78,6 +79,11 @@ SUCCESS_STATE_JS = r"""return (() => {
   }
   return {selector: null, text: ''};
 })()"""
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveredExistingAccount:
+    username: str
 
 
 def generate_username(
@@ -308,18 +314,67 @@ def perform_registration(
     code_enterer: Callable[..., None] = enter_launch_code,
     success_waiter: Callable[..., bool] = wait_for_registration_success,
     login_performer: Callable[..., Any] = perform_post_registration_login,
-) -> PollResult:
-    LOG.info("发送 GitHub 注册页非阻塞导航命令")
-    page.get(
-        GITHUB_SIGNUP_URL,
-        wait="none",
-        timeout=NAVIGATION_COMMAND_TIMEOUT_SECONDS,
-    )
-    LOG.info("导航命令已返回，开始等待 GitHub 注册表单")
-    submitted_at = form_filler(
-        page, account, username, timeout=form_timeout
-    )
-    stage_waiter(page, timeout=form_timeout)
+) -> PollResult | RecoveredExistingAccount:
+    def open_signup_page() -> None:
+        LOG.info("发送 GitHub 注册页非阻塞导航命令")
+        page.get(
+            GITHUB_SIGNUP_URL,
+            wait="none",
+            timeout=NAVIGATION_COMMAND_TIMEOUT_SECONDS,
+        )
+        LOG.info("导航命令已返回，开始等待 GitHub 注册表单")
+
+    open_signup_page()
+    try:
+        submitted_at = form_filler(
+            page, account, username, timeout=form_timeout
+        )
+    except TimeoutError:
+        LOG.warning("GitHub 注册表单未完整加载，重新打开注册页后再等待一次")
+        open_signup_page()
+        try:
+            submitted_at = form_filler(
+                page, account, username, timeout=form_timeout
+            )
+        except TimeoutError as retry_error:
+            raise TimeoutError(
+                f"{retry_error}；注册页已重新打开一次仍不可用"
+            ) from retry_error
+
+    try:
+        stage_waiter(page, timeout=form_timeout)
+    except TimeoutError as stage_error:
+        LOG.warning(
+            "邮箱验证码页面未出现，尝试将当前邮箱作为已存在账号登录恢复"
+        )
+        try:
+            recovered_login = login_performer(
+                page,
+                account,
+                form_timeout=form_timeout,
+                mail_timeout=mail_timeout,
+                success_timeout=success_timeout,
+            )
+        except Exception as recovery_error:
+            detail = str(recovery_error).strip() or type(recovery_error).__name__
+            raise TimeoutError(
+                f"{stage_error}；已有账号登录恢复失败："
+                f"{type(recovery_error).__name__}：{detail[:300]}"
+            ) from stage_error
+
+        recovered_username = str(
+            getattr(recovered_login, "username", "") or ""
+        ).strip()
+        if not getattr(recovered_login, "success", False) or not recovered_username:
+            raise TimeoutError(
+                f"{stage_error}；已有账号登录虽完成，但未读取到真实 GitHub 用户名"
+            ) from stage_error
+        LOG.info(
+            "已存在的 GitHub 账号登录恢复成功，真实用户名: %s",
+            recovered_username,
+        )
+        return RecoveredExistingAccount(recovered_username)
+
     LOG.info("邮箱验证码页面已出现，立即通过当前会话额外重发一次验证码")
     resender(page, timeout=form_timeout)
 
@@ -373,6 +428,7 @@ __all__ = [
     "LAUNCH_CODE_SELECTORS",
     "MARKETING_CONSENT_SELECTOR",
     "PASSWORD_SELECTOR",
+    "RecoveredExistingAccount",
     "RESEND_LAUNCH_CODE_SELECTOR",
     "SUCCESS_MESSAGE",
     "USERNAME_SELECTOR",

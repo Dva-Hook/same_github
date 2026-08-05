@@ -109,3 +109,25 @@ def test_missing_login_form_triggers_nonblocking_navigation() -> None:
     login.prepare_login_page(page)
 
     page.get.assert_called_once_with(login.GITHUB_LOGIN_URL, wait="none", timeout=15)
+
+
+def test_login_result_exposes_authenticated_username() -> None:
+    page = Mock()
+    page.run_js.return_value = {
+        "href": "https://github.com/login?return_to=%2Fdashboard",
+        "loginForm": True,
+        "userLogin": "Carly007John",
+    }
+
+    result = login.perform_post_registration_login(
+        page,
+        _account(),
+        form_timeout=60,
+        mail_timeout=180,
+        success_timeout=30,
+        form_filler=lambda *_args, **_kwargs: NOW,
+        outcome_waiter=lambda *_args, **_kwargs: "dashboard",
+    )
+
+    assert result.success is True
+    assert result.username == "Carly007John"

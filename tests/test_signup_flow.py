@@ -273,3 +273,79 @@ def test_perform_registration_rejects_missing_success_banner(account) -> None:
                 True, False
             ),
         )
+
+
+def test_registration_form_navigation_retries_once_before_submission(account) -> None:
+    page = Mock()
+    submitted = datetime(2026, 8, 5, 10, 0, tzinfo=timezone.utc)
+    fill = Mock(side_effect=[TimeoutError("邮箱框未出现"), submitted])
+
+    result = flow.perform_registration(
+        page,
+        account,
+        "Carly007John",
+        form_timeout=60,
+        mail_timeout=180,
+        success_timeout=30,
+        form_filler=fill,
+        stage_waiter=lambda *_args, **_kwargs: None,
+        mail_poller=lambda **_kwargs: PollResult("52778203", "refresh", 1, 1),
+        resender=lambda *_args, **_kwargs: None,
+        code_enterer=lambda *_args, **_kwargs: None,
+        success_waiter=lambda *_args, **_kwargs: True,
+        login_performer=lambda *_args, **_kwargs: PostRegistrationLoginResult(
+            True, False
+        ),
+    )
+
+    assert result.code == "52778203"
+    assert fill.call_count == 2
+    assert page.get.call_args_list == [
+        call(flow.GITHUB_SIGNUP_URL, wait="none", timeout=15),
+        call(flow.GITHUB_SIGNUP_URL, wait="none", timeout=15),
+    ]
+
+
+def test_existing_account_is_recovered_when_launch_code_stage_is_missing(account) -> None:
+    page = Mock()
+    mail = Mock()
+    resend = Mock()
+    enter = Mock()
+    success = Mock()
+    login = Mock(
+        return_value=PostRegistrationLoginResult(
+            success=True,
+            otp_used=False,
+            username="ExistingUser",
+        )
+    )
+
+    result = flow.perform_registration(
+        page,
+        account,
+        "Carly007John",
+        form_timeout=60,
+        mail_timeout=180,
+        success_timeout=30,
+        form_filler=lambda *_args, **_kwargs: datetime.now(timezone.utc),
+        stage_waiter=Mock(side_effect=TimeoutError("验证码框未出现")),
+        mail_poller=mail,
+        resender=resend,
+        code_enterer=enter,
+        success_waiter=success,
+        login_performer=login,
+    )
+
+    assert isinstance(result, flow.RecoveredExistingAccount)
+    assert result.username == "ExistingUser"
+    login.assert_called_once_with(
+        page,
+        account,
+        form_timeout=60,
+        mail_timeout=180,
+        success_timeout=30,
+    )
+    mail.assert_not_called()
+    resend.assert_not_called()
+    enter.assert_not_called()
+    success.assert_not_called()

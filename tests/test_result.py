@@ -22,6 +22,7 @@ def _write_result(
     code_submitted: bool = True,
     success_banner: bool = True,
     login_confirmed: bool = True,
+    recovered_existing: bool = False,
     suffix: str = "1",
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -42,6 +43,7 @@ def _write_result(
             "code_submitted": code_submitted,
             "success_banner": success_banner,
             "login_confirmed": login_confirmed,
+            "recovered_existing": recovered_existing,
         }
     else:
         payload["errors"] = [{"attempt": 1, "type": "RuntimeError", "message": "失败"}]
@@ -185,6 +187,22 @@ def test_success_without_confirmed_login_is_ignored(tmp_path: Path) -> None:
 
     assert not summary.accepted
     assert summary.ignored == 1
+
+
+def test_collect_accepts_login_confirmed_existing_account_recovery(tmp_path: Path) -> None:
+    _write_result(
+        tmp_path / "job" / "result.json",
+        success=True,
+        email="A12345678@example.com",
+        code_submitted=False,
+        success_banner=False,
+        login_confirmed=True,
+        recovered_existing=True,
+    )
+
+    summary = result_module.collect_results(tmp_path)
+
+    assert [item.email for item in summary.accepted] == ["A12345678@example.com"]
 
 
 def test_cli_writes_chinese_actions_summary(tmp_path: Path) -> None:
