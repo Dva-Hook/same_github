@@ -103,7 +103,7 @@ def run_job(
     account: EmailCredential,
     *,
     output_dir: Path,
-    max_attempts: int = 3,
+    max_attempts: int = 1,
     headless: bool = False,
     form_timeout: float = 60.0,
     mail_timeout: float = 180.0,
@@ -111,8 +111,8 @@ def run_job(
     attempt_runner: Callable[..., str] = run_single_attempt,
 ) -> dict[str, Any]:
     attempts_limit = int(max_attempts)
-    if not 1 <= attempts_limit <= 3:
-        raise ValueError("最大尝试次数必须在 1 到 3 之间")
+    if attempts_limit != 1:
+        raise ValueError("最大尝试次数必须为 1，避免重复提交同一邮箱注册")
 
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -206,9 +206,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--最大尝试次数",
         type=int,
-        choices=range(1, 4),
-        default=3,
-        help="每个邮箱最多尝试 3 次",
+        choices=(1,),
+        default=1,
+        help="每个邮箱只提交 1 次注册，验证码在当前页面内重试",
     )
     parser.add_argument("--表单超时秒数", type=float, default=60.0)
     parser.add_argument("--邮件超时秒数", type=float, default=180.0)

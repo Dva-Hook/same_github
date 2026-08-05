@@ -170,7 +170,7 @@ jobs:
               --邮箱文件 email.txt \
               --任务索引 "${{ matrix.index }}" \
               --输出目录 "$output_dir" \
-              --最大尝试次数 3 \
+              --最大尝试次数 1 \
               --表单超时秒数 "${{ needs.prepare.outputs.form_timeout }}" \
               --邮件超时秒数 "${{ needs.prepare.outputs.mail_timeout }}" \
               --成功确认超时秒数 "${{ needs.prepare.outputs.success_timeout }}"
@@ -190,7 +190,7 @@ jobs:
       - name: 标记失败任务
         if: steps.registration.outputs.exit_code != '0'
         run: |
-          echo "当前邮箱在三次尝试后仍未注册成功，详细信息已上传。"
+          echo "当前邮箱的单次注册流程未完成，详细信息已上传。"
           exit 1
 
   collect:

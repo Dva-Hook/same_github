@@ -28,7 +28,7 @@ def test_workflow_is_valid_chinese_manual_matrix() -> None:
     assert "最大并发数量（1-20）" in text
 
 
-def test_matrix_limits_unique_allocation_and_three_attempts() -> None:
+def test_matrix_limits_unique_allocation_and_single_submission() -> None:
     text, data = _workflow()
     register = data["jobs"]["register"]
 
@@ -40,7 +40,7 @@ def test_matrix_limits_unique_allocation_and_three_attempts() -> None:
     assert "matrix_indices" in text
     assert '"--任务索引"' not in text
     assert "--任务索引 \"${{ matrix.index }}\"" in text
-    assert "--最大尝试次数 3" in text
+    assert "--最大尝试次数 1" in text
     assert "for attempt in 1 2 3" not in text
 
 

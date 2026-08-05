@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock, call
 
 import pytest
 
@@ -37,6 +37,7 @@ class Element:
 def test_username_and_fixed_selectors(account) -> None:
     assert flow.generate_username(account, randbelow=lambda _: 7) == "Carly007John"
     assert flow.CREATE_ACCOUNT_SELECTOR == "css:button.form-control"
+    assert flow.RESEND_LAUNCH_CODE_SELECTOR.endswith("> span > button")
     assert flow.LAUNCH_CODE_SELECTORS == tuple(f"#launch-code-{i}" for i in range(8))
     with pytest.raises(ValueError, match="至少需要 9 个字符"):
         short = parse_credential_line(
@@ -121,6 +122,37 @@ def test_enters_all_eight_digits(account) -> None:
         flow.enter_launch_code(object(), "1234567", timeout=20, waiter=waiter)
 
 
+def test_resend_uses_current_browser_session_request() -> None:
+    page = Mock()
+    page.run_js.return_value = {"ok": True, "status": 200}
+    clicker = Mock()
+
+    flow.resend_launch_code_email(page, timeout=30, clicker=clicker)
+
+    page.run_js.assert_called_once_with(flow.GITHUB_RESEND_REQUEST_JS, timeout=20)
+    script = page.run_js.call_args.args[0]
+    assert "/account_verifications/resend" in script
+    assert "credentials: 'same-origin'" in script
+    assert "github-verified-fetch" in script
+    assert "X-Requested-With" in script
+    clicker.assert_not_called()
+
+
+def test_resend_falls_back_to_captured_button_selector() -> None:
+    page = Mock()
+    page.run_js.return_value = {"ok": False, "status": 422}
+    clicker = Mock()
+
+    flow.resend_launch_code_email(page, timeout=30, clicker=clicker)
+
+    clicker.assert_called_once_with(
+        page,
+        flow.RESEND_LAUNCH_CODE_SELECTOR,
+        "重新发送验证码按钮",
+        30,
+    )
+
+
 class SuccessPage:
     def __init__(self, results: list[dict[str, str]]) -> None:
         self.results = iter(results)
@@ -164,6 +196,18 @@ def test_perform_registration_uses_mail_and_success_contract(account) -> None:
     wait_stage = Mock()
     enter = Mock()
     success = Mock(return_value=True)
+    resend = Mock()
+
+    def poll(**kwargs):
+        kwargs["resend_callback"]()
+        return PollResult(
+            code="52778203",
+            refresh_token="rotated",
+            scanned=2,
+            sender_matches=1,
+        )
+
+    poller.side_effect = poll
     result = flow.perform_registration(
         page,
         account,
@@ -174,6 +218,7 @@ def test_perform_registration_uses_mail_and_success_contract(account) -> None:
         form_filler=fill,
         stage_waiter=wait_stage,
         mail_poller=poller,
+        resender=resend,
         code_enterer=enter,
         success_waiter=success,
     )
@@ -181,11 +226,17 @@ def test_perform_registration_uses_mail_and_success_contract(account) -> None:
     page.get.assert_called_once_with(flow.GITHUB_SIGNUP_URL, wait="none", timeout=15)
     fill.assert_called_once_with(page, account, "Carly007John", timeout=60)
     wait_stage.assert_called_once_with(page, timeout=60)
+    assert resend.call_args_list == [
+        call(page, timeout=60),
+        call(page, timeout=60),
+    ]
     poller.assert_called_once_with(
         client_id=account.client_id,
         refresh_token=account.refresh_token,
         not_before=submitted,
         timeout=180,
+        reads_per_cycle=3,
+        resend_callback=ANY,
     )
     enter.assert_called_once_with(page, "52778203", timeout=60)
     success.assert_called_once_with(page, timeout=30)
@@ -205,6 +256,7 @@ def test_perform_registration_rejects_missing_success_banner(account) -> None:
             form_filler=lambda *_args, **_kwargs: datetime.now(timezone.utc),
             stage_waiter=lambda *_args, **_kwargs: None,
             mail_poller=lambda **_kwargs: PollResult("52778203", "refresh", 1, 1),
+            resender=lambda *_args, **_kwargs: None,
             code_enterer=lambda *_args, **_kwargs: None,
             success_waiter=lambda *_args, **_kwargs: False,
         )

@@ -162,6 +162,37 @@ def test_poll_retries_every_five_seconds_until_code_arrives() -> None:
     assert sleeps == [5.0, 5.0]
 
 
+def test_poll_resends_after_exactly_three_empty_reads() -> None:
+    sleeps: list[float] = []
+    resends: list[str] = []
+    reads = iter(
+        [
+            [],
+            [],
+            [],
+            [_message(received=NOW + timedelta(seconds=1))],
+        ]
+    )
+
+    result = poll_github_launch_code(
+        client_id="client",
+        refresh_token="refresh",
+        not_before=NOW,
+        timeout=60,
+        reads_per_cycle=3,
+        resend_callback=lambda: resends.append("重发"),
+        sleep=sleeps.append,
+        monotonic=lambda: 0.0,
+        token_getter=lambda *_: ("access", "refresh"),
+        message_reader=lambda *_: next(reads),
+        session_factory=object,
+    )
+
+    assert result.code == "52778203"
+    assert resends == ["重发"]
+    assert sleeps == [5.0, 5.0, 5.0, 5.0]
+
+
 def test_poll_times_out_with_chinese_error() -> None:
     times = iter([0.0, 0.0, 0.5, 1.0, 1.0])
 

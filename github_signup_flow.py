@@ -28,8 +28,42 @@ MARKETING_CONSENT_SELECTOR = 'css:[id="user_signup[marketing_consent]"]'
 COPILOT_OPT_IN_SELECTOR = 'css:[id="user_signup[copilot_opt_in]"]'
 CREATE_ACCOUNT_SELECTOR = "css:button.form-control"
 LAUNCH_CODE_SELECTORS = tuple(f"#launch-code-{index}" for index in range(8))
+RESEND_LAUNCH_CODE_SELECTOR = (
+    "css:body > div.logged-out.env-production.page-responsive.height-full."
+    "d-flex.flex-column.header-overlay > div.application-main.d-flex.flex-auto."
+    "flex-column > div > main > div > div.signups-rebrand__container-form."
+    "position-relative > div.d-flex.flex-justify-center."
+    "signups-rebrand__container-inner > react-partial > div > div > "
+    "div:nth-child(1) > div > div > span > button"
+)
 SUCCESS_MESSAGE = "Your account was created successfully! Please sign in to continue."
 NAVIGATION_COMMAND_TIMEOUT_SECONDS = 15
+GITHUB_RESEND_REQUEST_JS = r"""return (async () => {
+  try {
+    const response = await fetch(
+      '/account_verifications/resend?return_to=%2Faccount_verifications%3Fresent%3D1',
+      {
+        method: 'POST',
+        credentials: 'same-origin',
+        redirect: 'follow',
+        headers: {
+          'Accept': '*/*',
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'github-verified-fetch': 'true',
+          'X-Requested-With': 'XMLHttpRequest'
+        }
+      }
+    );
+    await response.text();
+    return {
+      ok: response.ok,
+      status: response.status,
+      redirected: response.redirected
+    };
+  } catch (error) {
+    return {ok: false, status: 0, error: String(error)};
+  }
+})()"""
 SUCCESS_STATE_JS = r"""return (() => {
   const selectors = [
     '.js-flash-alert > div:nth-child(1)',
@@ -200,6 +234,40 @@ def enter_launch_code(
         element.input(character, clear=True)
 
 
+def resend_launch_code_email(
+    page: Any,
+    *,
+    timeout: float,
+    clicker: Callable[..., None] = click_element,
+) -> None:
+    result: dict[str, Any] = {}
+    try:
+        raw_result = page.run_js(
+            GITHUB_RESEND_REQUEST_JS,
+            timeout=min(20.0, max(1.0, float(timeout))),
+        )
+        if isinstance(raw_result, dict):
+            result = dict(raw_result)
+    except Exception as exc:
+        result = {"ok": False, "status": 0, "error": type(exc).__name__}
+
+    if result.get("ok"):
+        LOG.info("已通过当前浏览器会话请求重发验证码：HTTP %s", result.get("status"))
+        return
+
+    LOG.warning(
+        "浏览器会话重发请求未被接受：HTTP %s，改用页面按钮",
+        result.get("status") or 0,
+    )
+    clicker(
+        page,
+        RESEND_LAUNCH_CODE_SELECTOR,
+        "重新发送验证码按钮",
+        timeout,
+    )
+    LOG.info("已通过页面按钮请求重发验证码")
+
+
 def wait_for_registration_success(
     page: Any,
     *,
@@ -235,6 +303,7 @@ def perform_registration(
     form_filler: Callable[..., datetime] = fill_signup_form,
     stage_waiter: Callable[..., None] = wait_for_launch_code_stage,
     mail_poller: Callable[..., PollResult] = poll_github_launch_code,
+    resender: Callable[..., None] = resend_launch_code_email,
     code_enterer: Callable[..., None] = enter_launch_code,
     success_waiter: Callable[..., bool] = wait_for_registration_success,
 ) -> PollResult:
@@ -249,12 +318,21 @@ def perform_registration(
         page, account, username, timeout=form_timeout
     )
     stage_waiter(page, timeout=form_timeout)
-    LOG.info("邮箱验证码页面已出现，开始读取 GitHub 验证邮件")
+    LOG.info("邮箱验证码页面已出现，立即通过当前会话额外重发一次验证码")
+    resender(page, timeout=form_timeout)
+
+    def resend_after_empty_cycle() -> None:
+        LOG.warning("连续三次读取未发现验证码，继续在当前页面重发")
+        resender(page, timeout=form_timeout)
+
+    LOG.info("等待 5 秒后开始读取 GitHub 验证邮件")
     mail_result = mail_poller(
         client_id=account.client_id,
         refresh_token=account.refresh_token,
         not_before=submitted_at,
         timeout=mail_timeout,
+        reads_per_cycle=3,
+        resend_callback=resend_after_empty_cycle,
     )
     LOG.info(
         "已读取 GitHub 验证邮件：扫描 %d 封，发件人匹配 %d 封",
@@ -279,6 +357,7 @@ __all__ = [
     "LAUNCH_CODE_SELECTORS",
     "MARKETING_CONSENT_SELECTOR",
     "PASSWORD_SELECTOR",
+    "RESEND_LAUNCH_CODE_SELECTOR",
     "SUCCESS_MESSAGE",
     "USERNAME_SELECTOR",
     "click_element",
@@ -286,8 +365,10 @@ __all__ = [
     "enter_launch_code",
     "fill_signup_form",
     "generate_username",
+    "GITHUB_RESEND_REQUEST_JS",
     "launch_direct_browser",
     "perform_registration",
+    "resend_launch_code_email",
     "wait_element",
     "wait_for_launch_code_stage",
     "wait_for_registration_success",

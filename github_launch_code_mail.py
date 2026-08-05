@@ -202,6 +202,8 @@ def poll_github_launch_code(
     not_before: datetime,
     timeout: float,
     interval: float = 5.0,
+    reads_per_cycle: int = 3,
+    resend_callback: Callable[[], None] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     monotonic: Callable[[], float] = time.monotonic,
     token_getter: Callable[..., tuple[str, str]] = get_access_token,
@@ -210,6 +212,9 @@ def poll_github_launch_code(
 ) -> PollResult:
     timeout_value = max(0.1, float(timeout))
     interval_value = max(0.1, float(interval))
+    reads_per_cycle_value = int(reads_per_cycle)
+    if reads_per_cycle_value < 1:
+        raise ValueError("每轮邮件读取次数必须至少为 1")
     deadline = monotonic() + timeout_value
     session = session_factory()
     current_refresh = refresh_token
@@ -217,6 +222,7 @@ def poll_github_launch_code(
     total_scanned = 0
     total_sender_matches = 0
     last_error: Exception | None = None
+    reads_in_cycle = 0
 
     try:
         sleep(min(5.0, timeout_value))
@@ -224,6 +230,7 @@ def poll_github_launch_code(
             session, client_id, current_refresh
         )
         while monotonic() < deadline:
+            reads_in_cycle += 1
             try:
                 messages = message_reader(session, access_token)
                 result = find_github_launch_code(messages, not_before=not_before)
@@ -246,9 +253,22 @@ def poll_github_launch_code(
                 last_error = exc
                 LOG.warning("读取 GitHub 验证邮件失败，将继续重试: %s", type(exc).__name__)
 
+            LOG.info(
+                "本轮第 %d/%d 次邮件读取未发现 GitHub 验证码",
+                reads_in_cycle,
+                reads_per_cycle_value,
+            )
+
             remaining = deadline - monotonic()
             if remaining <= 0:
                 break
+            if reads_in_cycle >= reads_per_cycle_value:
+                if resend_callback is not None:
+                    resend_callback()
+                reads_in_cycle = 0
+                remaining = deadline - monotonic()
+                if remaining <= 0:
+                    break
             sleep(min(interval_value, remaining))
     finally:
         close = getattr(session, "close", None)

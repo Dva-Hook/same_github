@@ -17,29 +17,25 @@ def account():
     )
 
 
-def test_job_uses_three_distinct_profiles_and_stops_on_success(
+def test_job_submits_registration_only_once(
     tmp_path: Path, account
 ) -> None:
     profiles: list[Path] = []
-    outcomes = iter([RuntimeError("第一次失败"), RuntimeError("第二次失败"), None])
 
     def attempt(*, profile_dir: Path, **_kwargs: object) -> str:
         profiles.append(profile_dir)
-        outcome = next(outcomes)
-        if outcome:
-            raise outcome
         return "Carly007John"
 
     result = job.run_job(
         account,
         output_dir=tmp_path,
-        max_attempts=3,
+        max_attempts=1,
         attempt_runner=attempt,
     )
 
     assert result["success"] is True
-    assert result["attempts"] == 3
-    assert len(set(profiles)) == 3
+    assert result["attempts"] == 1
+    assert len(profiles) == 1
     assert all(not profile.exists() for profile in profiles)
 
 
@@ -47,7 +43,7 @@ def test_success_result_has_complete_verification_schema(tmp_path: Path, account
     result = job.run_job(
         account,
         output_dir=tmp_path,
-        max_attempts=3,
+        max_attempts=1,
         attempt_runner=lambda **_kwargs: "Carly007John",
     )
 
@@ -74,25 +70,25 @@ def test_failed_job_never_contains_credentials(tmp_path: Path, account) -> None:
     result = job.run_job(
         account,
         output_dir=tmp_path,
-        max_attempts=3,
+        max_attempts=1,
         attempt_runner=fail,
     )
 
     text = json.dumps(result, ensure_ascii=False)
     assert result["success"] is False
-    assert result["attempts"] == 3
+    assert result["attempts"] == 1
     assert account.mailbox_password not in text
     assert account.client_id not in text
     assert account.refresh_token not in text
     assert not (tmp_path / "账号.txt").exists()
 
 
-def test_max_attempts_is_hard_limited(account, tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="1 到 3"):
+def test_whole_registration_retry_is_rejected(account, tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="必须为 1"):
         job.run_job(
             account,
             output_dir=tmp_path,
-            max_attempts=4,
+            max_attempts=2,
             attempt_runner=lambda **_kwargs: "name",
         )
 
@@ -106,7 +102,7 @@ def test_cli_uses_chinese_flags_and_has_no_proxy_option() -> None:
     assert "--最大尝试次数" in options
     assert "--proxy" not in options
     with pytest.raises(SystemExit):
-        parser.parse_args(["--任务索引", "1", "--输出目录", "out", "--最大尝试次数", "4"])
+        parser.parse_args(["--任务索引", "1", "--输出目录", "out", "--最大尝试次数", "2"])
 
 
 def test_default_attempt_always_closes_browser(tmp_path: Path, account) -> None:
